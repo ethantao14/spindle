@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    # Apple Silicon runner, matching the dev and benchmark machine.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Show toolchain
+        run: |
+          uname -m
+          sw_vers -productVersion
+          clang++ --version | head -1
+          cmake --version | head -1
+          python3 --version
+      - name: Run all checks (format, Release and ASan/UBSan tests, clang-tidy)
+        run: ./tools/check.sh
