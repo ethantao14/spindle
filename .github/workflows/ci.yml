@@ -11,6 +11,17 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7.0.1
+      # PyTorch wheels are pinned against Python 3.14, so pin it here too.
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Cache pip downloads and Hugging Face models
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/Library/Caches/pip
+            ~/.cache/huggingface
+          key: reference-${{ runner.os }}-${{ hashFiles('requirements-reference.txt', 'tools/reference.py') }}
       - name: Show toolchain
         run: |
           uname -m
