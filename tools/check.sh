@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs every check CI runs: format, clang-tidy, and the test suite in both builds.
+# Runs every check CI runs: format, reference dumps, both test builds, and clang-tidy.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -20,6 +20,14 @@ fi
 
 echo "== clang-format"
 .venv/bin/clang-format --dry-run --Werror $sources
+
+echo "== reference dumps (first run downloads PyTorch and the 548 MB GPT-2 weights)"
+if [[ ! -x .venv-reference/bin/python ]]; then
+  python3 -m venv .venv-reference
+fi
+.venv-reference/bin/pip install --quiet -r requirements-reference.txt
+.venv-reference/bin/python tools/reference.py \
+  --prompts tests/reference/gpt2_prompts.json --out build/reference/gpt2
 
 for preset in release asan; do
   echo "== build and test: $preset"
