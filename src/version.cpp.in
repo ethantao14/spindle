@@ -1,0 +1,7 @@
+#include "spindle/version.h"
+
+namespace spindle {
+
+std::string_view version() { return "@PROJECT_VERSION@"; }
+
+}  // namespace spindle
