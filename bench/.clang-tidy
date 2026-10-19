@@ -1,0 +1,3 @@
+# Google Benchmark's registration macros and loop variable trip these by design.
+InheritParentConfig: true
+Checks: '-bugprone-throwing-static-initialization,-clang-analyzer-deadcode.DeadStores'

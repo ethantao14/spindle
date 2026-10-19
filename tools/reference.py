@@ -1,35 +1,23 @@
 """Dump GPT-2 reference outputs from Hugging Face Transformers for the C++ tests.
 
 For each prompt, writes token IDs, the output of every stage of the forward pass,
-and the logits, one tensor per file, in the format read by tests/support/reference.h.
+and the logits, one tensor per file (see tools/tensorfile.py).
 """
 
 import argparse
 import json
-import struct
 from pathlib import Path
 
 import numpy as np
 import torch
 from huggingface_hub import snapshot_download
+from tensorfile import write_tensor
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
 MODEL_ID = "openai-community/gpt2"
 # Pinned so the reference cannot change underneath the tests.
 MODEL_REVISION = "607a30d783dfa663caf39e06633721c8d4cfcd7e"
 MODEL_FILES = ["config.json", "model.safetensors", "tokenizer.json", "vocab.json", "merges.txt"]
-
-MAGIC = b"SPTN"
-FORMAT_VERSION = 1
-DTYPE_CODES = {np.dtype(np.float32): 0, np.dtype(np.int32): 1}
-
-
-def write_tensor(path: Path, array: np.ndarray) -> None:
-    """Header: magic, version, dtype, ndim (u32 each), dims (u64 each). Then raw little-endian data."""
-    array = np.ascontiguousarray(array)
-    header = MAGIC + struct.pack("<III", FORMAT_VERSION, DTYPE_CODES[array.dtype], array.ndim)
-    header += struct.pack(f"<{array.ndim}Q", *array.shape)
-    path.write_bytes(header + array.astype(array.dtype.newbyteorder("<")).tobytes())
 
 
 def capture_stages(model: GPT2LMHeadModel) -> tuple[dict[str, torch.Tensor], list]:

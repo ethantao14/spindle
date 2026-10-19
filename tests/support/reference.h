@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <vector>
 
+#include "spindle/tensor.h"
+
 namespace spindle::test {
 
 // Element types in a reference tensor file; values match tools/reference.py.
@@ -22,5 +24,8 @@ struct ReferenceTensor {
 
 // Reads a tensor file. Throws std::runtime_error if the file is missing or malformed.
 ReferenceTensor load_reference_tensor(const std::filesystem::path& path);
+
+// Loads a float32 reference file into an owning Tensor. Throws if it is not float32.
+Tensor load_float_tensor(const std::filesystem::path& path);
 
 }  // namespace spindle::test

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs every check CI runs: format, reference dumps, both test builds, and clang-tidy.
+# Runs every check CI runs: format, reference dumps, both test builds, a benchmark
+# smoke run, and clang-tidy.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,6 +29,7 @@ fi
 .venv-reference/bin/pip install --quiet -r requirements-reference.txt
 .venv-reference/bin/python tools/reference.py \
   --prompts tests/reference/gpt2_prompts.json --out build/reference/gpt2
+.venv-reference/bin/python tools/op_reference.py --out build/reference/ops
 
 for preset in release asan; do
   echo "== build and test: $preset"
@@ -40,6 +42,9 @@ for preset in release asan; do
     exit 1
   fi
 done
+
+echo "== benchmark smoke run (one iteration each, timings not meaningful)"
+build/release/bench/spindle_bench --benchmark_min_time=1x
 
 echo "== clang-tidy (uses the sanitizer build, which compiles every source)"
 # The PyPI clang-tidy does not know the macOS SDK location, so pass it explicitly.

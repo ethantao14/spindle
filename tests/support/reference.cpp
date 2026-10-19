@@ -124,4 +124,12 @@ ReferenceTensor load_reference_tensor(const std::filesystem::path& path) {
   return tensor;
 }
 
+Tensor load_float_tensor(const std::filesystem::path& path) {
+  ReferenceTensor reference = load_reference_tensor(path);
+  if (reference.dtype != DType::kFloat32) {
+    throw std::runtime_error(path.string() + ": expected a float32 tensor");
+  }
+  return {reference.shape, reference.floats};
+}
+
 }  // namespace spindle::test

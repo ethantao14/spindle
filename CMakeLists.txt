@@ -18,7 +18,7 @@ set(SPINDLE_WARNINGS -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
 
 configure_file(src/version.cpp.in ${CMAKE_CURRENT_BINARY_DIR}/version.cpp @ONLY)
 
-add_library(spindle_core ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
+add_library(spindle_core src/ops.cpp src/tensor.cpp ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
 target_include_directories(spindle_core PUBLIC include)
 target_compile_options(spindle_core PRIVATE ${SPINDLE_WARNINGS})
 
@@ -29,4 +29,9 @@ target_compile_options(spindle PRIVATE ${SPINDLE_WARNINGS})
 include(CTest)
 if(BUILD_TESTING)
   add_subdirectory(tests)
+endif()
+
+option(SPINDLE_BENCHMARKS "Build the Google Benchmark targets" ON)
+if(SPINDLE_BENCHMARKS)
+  add_subdirectory(bench)
 endif()
