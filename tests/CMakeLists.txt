@@ -15,6 +15,8 @@ set(SPINDLE_TEST_SOURCES
     cli_test.cpp
     reference_loader_test.cpp
     gpt2_reference_test.cpp
+    tensor_test.cpp
+    matmul_test.cpp
     support/reference.cpp)
 if(SPINDLE_SANITIZE)
   list(APPEND SPINDLE_TEST_SOURCES sanitizer_test.cpp)
