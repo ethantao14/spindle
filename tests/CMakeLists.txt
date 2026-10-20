@@ -18,13 +18,15 @@ set(SPINDLE_TEST_SOURCES
     tensor_test.cpp
     matmul_test.cpp
     ops_test.cpp
+    tokenizer_test.cpp
+    unicode_test.cpp
     support/reference.cpp)
 if(SPINDLE_SANITIZE)
   list(APPEND SPINDLE_TEST_SOURCES sanitizer_test.cpp)
 endif()
 
 add_executable(spindle_tests ${SPINDLE_TEST_SOURCES})
-target_link_libraries(spindle_tests PRIVATE spindle_core GTest::gtest_main)
+target_link_libraries(spindle_tests PRIVATE spindle_core GTest::gtest_main GTest::gmock nlohmann_json::nlohmann_json)
 target_compile_options(spindle_tests PRIVATE ${SPINDLE_WARNINGS})
 target_include_directories(spindle_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(spindle_tests PRIVATE SPINDLE_CLI_PATH="$<TARGET_FILE:spindle>"
