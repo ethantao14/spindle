@@ -34,4 +34,7 @@ target_compile_definitions(spindle_tests PRIVATE SPINDLE_CLI_PATH="$<TARGET_FILE
 add_dependencies(spindle_tests spindle)
 
 include(GoogleTest)
-gtest_discover_tests(spindle_tests)
+gtest_discover_tests(spindle_tests TEST_FILTER "-Tokenizer.LongSinglePieceEncodesQuickly")
+add_test(NAME Tokenizer.LongSinglePieceEncodesQuickly
+         COMMAND spindle_tests --gtest_filter=Tokenizer.LongSinglePieceEncodesQuickly)
+set_tests_properties(Tokenizer.LongSinglePieceEncodesQuickly PROPERTIES TIMEOUT 30)

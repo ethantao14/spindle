@@ -16,7 +16,8 @@ namespace spindle {
 class Tokenizer {
  public:
   // Reads model_dir/vocab.json and model_dir/merges.txt. Throws std::runtime_error
-  // if either is missing or malformed.
+  // if either is missing or malformed, or std::invalid_argument if a vocabulary
+  // token contains invalid UTF-8.
   static Tokenizer load(const std::filesystem::path& model_dir);
 
   // Throws std::invalid_argument if text is not valid UTF-8.
@@ -36,9 +37,14 @@ class Tokenizer {
   void encode_plain(std::string_view text, std::vector<std::int32_t>& out) const;
 
   std::vector<std::string> token_bytes_;  // id -> the raw bytes it stands for
-  // Merges and the vocabulary are keyed by GPT-2's printable stand-ins for bytes.
+  // The vocabulary is keyed by GPT-2's printable stand-ins for bytes.
   std::unordered_map<std::string, std::int32_t> ids_;
-  std::unordered_map<std::string, std::size_t> merge_ranks_;  // "left right" -> rank
+  struct Merge {
+    std::size_t rank;
+    std::int32_t result;
+  };
+  std::unordered_map<std::uint64_t, Merge> merges_;  // packed pair of token ids -> merge
+  std::array<std::int32_t, 256> byte_ids_{};
   std::array<std::string, 256> byte_symbols_;
   std::int32_t end_of_text_id_ = -1;
 };

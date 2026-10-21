@@ -7,6 +7,7 @@
 #include <iterator>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <queue>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -19,6 +20,10 @@ namespace spindle {
 namespace {
 
 constexpr std::string_view kEndOfText = "<|endoftext|>";
+
+std::uint64_t pair_key(std::int32_t left, std::int32_t right) {
+  return (static_cast<std::uint64_t>(left) << 32) | static_cast<std::uint32_t>(right);
+}
 
 // GPT-2 maps each byte to a printable character so tokens never hold raw
 // whitespace or control bytes. Printable Latin-1 bytes map to themselves.
@@ -125,15 +130,18 @@ Tokenizer Tokenizer::load(const std::filesystem::path& model_dir) {
     malformed(vocab_path, "missing " + std::string(kEndOfText));
   }
   tokenizer.end_of_text_id_ = end_of_text->second;
-  for (const std::string& symbol : tokenizer.byte_symbols_) {
+  for (std::size_t byte = 0; byte < mapping.size(); ++byte) {
+    const std::string& symbol = tokenizer.byte_symbols_[byte];
     if (!tokenizer.ids_.contains(symbol)) {
       malformed(vocab_path, "missing the single-byte token '" + symbol + "'");
     }
+    tokenizer.byte_ids_[byte] = tokenizer.ids_.at(symbol);
   }
 
   const std::filesystem::path merges_path = model_dir / "merges.txt";
   std::istringstream merges(read_file(merges_path));
   std::string line;
+  std::size_t rank = 0;
   while (std::getline(merges, line)) {
     if (line.empty() || line.starts_with("#version")) {
       continue;
@@ -146,7 +154,14 @@ Tokenizer Tokenizer::load(const std::filesystem::path& model_dir) {
     if (!tokenizer.ids_.contains(merged)) {
       malformed(merges_path, "merge result '" + merged + "' is not in the vocabulary");
     }
-    tokenizer.merge_ranks_.emplace(line, tokenizer.merge_ranks_.size());
+    const auto left = tokenizer.ids_.find(line.substr(0, space));
+    const auto right = tokenizer.ids_.find(line.substr(space + 1));
+    // An operand outside the vocabulary can never occur during encoding.
+    if (left != tokenizer.ids_.end() && right != tokenizer.ids_.end()) {
+      tokenizer.merges_.emplace(pair_key(left->second, right->second),
+                                Merge{.rank = rank, .result = tokenizer.ids_.at(merged)});
+    }
+    ++rank;
   }
   return tokenizer;
 }
@@ -185,31 +200,74 @@ void Tokenizer::encode_plain(std::string_view text, std::vector<std::int32_t>& o
 }
 
 void Tokenizer::encode_piece(std::string_view piece, std::vector<std::int32_t>& out) const {
-  std::vector<std::string> symbols;
-  symbols.reserve(piece.size());
-  for (const char byte : piece) {
-    symbols.push_back(byte_symbols_[static_cast<unsigned char>(byte)]);
-  }
-  // Repeatedly merge the adjacent pair learned earliest, until no pair has a merge.
-  while (symbols.size() > 1) {
-    std::size_t best_rank = std::numeric_limits<std::size_t>::max();
-    std::size_t best_index = 0;
-    for (std::size_t i = 0; i + 1 < symbols.size(); ++i) {
-      const auto rank = merge_ranks_.find(symbols[i] + ' ' + symbols[i + 1]);
-      if (rank != merge_ranks_.end() && rank->second < best_rank) {
-        best_rank = rank->second;
-        best_index = i;
-      }
+  const std::size_t end = piece.size();
+  struct Symbol {
+    std::int32_t id;
+    std::size_t previous;
+    std::size_t next;
+    std::size_t version = 0;
+  };
+  struct Candidate {
+    std::size_t rank;
+    std::size_t left;
+    std::size_t right;
+    std::size_t left_version;
+    std::size_t right_version;
+    std::int32_t result;
+  };
+  const auto later = [](const Candidate& a, const Candidate& b) {
+    if (a.rank != b.rank) {
+      return a.rank > b.rank;
     }
-    if (best_rank == std::numeric_limits<std::size_t>::max()) {
-      break;
-    }
-    symbols[best_index] += symbols[best_index + 1];
-    symbols.erase(symbols.begin() + static_cast<std::ptrdiff_t>(best_index) + 1);
+    return a.left > b.left;
+  };
+  std::priority_queue<Candidate, std::vector<Candidate>, decltype(later)> candidates(later);
+  std::vector<Symbol> symbols;
+  symbols.reserve(end);
+  for (std::size_t i = 0; i < end; ++i) {
+    symbols.push_back({.id = byte_ids_[static_cast<unsigned char>(piece[i])],
+                       .previous = i == 0 ? end : i - 1,
+                       .next = i + 1});
   }
-  for (const std::string& symbol : symbols) {
-    // Single bytes and every merge result are in the vocabulary (checked at load).
-    out.push_back(ids_.at(symbol));
+  const auto add_candidate = [&](std::size_t left) {
+    if (left == end || symbols[left].next == end) {
+      return;
+    }
+    const std::size_t right = symbols[left].next;
+    const auto merge = merges_.find(pair_key(symbols[left].id, symbols[right].id));
+    if (merge != merges_.end()) {
+      candidates.push({.rank = merge->second.rank,
+                       .left = left,
+                       .right = right,
+                       .left_version = symbols[left].version,
+                       .right_version = symbols[right].version,
+                       .result = merge->second.result});
+    }
+  };
+  for (std::size_t i = 0; i < end; ++i) {
+    add_candidate(i);
+  }
+  while (!candidates.empty()) {
+    const Candidate candidate = candidates.top();
+    candidates.pop();
+    Symbol& left = symbols[candidate.left];
+    Symbol& right = symbols[candidate.right];
+    // Versions reject candidates whose operands were merged or removed.
+    if (left.version != candidate.left_version || right.version != candidate.right_version) {
+      continue;
+    }
+    left.id = candidate.result;
+    left.next = right.next;
+    ++left.version;
+    ++right.version;
+    if (right.next != end) {
+      symbols[right.next].previous = candidate.left;
+    }
+    add_candidate(left.previous);
+    add_candidate(candidate.left);
+  }
+  for (std::size_t i = 0; i < end; i = symbols[i].next) {
+    out.push_back(symbols[i].id);
   }
 }
 

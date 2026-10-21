@@ -99,6 +99,24 @@ TEST(Tokenizer, DecodeRoundTripsReferenceStrings) {
   }
 }
 
+TEST(Tokenizer, LongSinglePieceEncodesQuickly) {
+  std::string mixed;
+  mixed.reserve(210000);
+  for (std::size_t i = 0; i < 70000; ++i) {
+    mixed += "ab1";
+  }
+  const std::vector<std::string> inputs = {std::string(200000, '1'), std::string(200000, 'a'),
+                                           mixed};
+  for (std::size_t i = 0; i < inputs.size(); ++i) {
+    SCOPED_TRACE(i);
+    const std::string& text = inputs[i];
+    const std::vector<std::int32_t> ids = tokenizer().encode(text);
+    EXPECT_GT(ids.size(), 0U);
+    EXPECT_LT(ids.size(), text.size());
+    EXPECT_EQ(tokenizer().decode(ids), text);
+  }
+}
+
 TEST(Tokenizer, EncodesKnownIds) {
   EXPECT_EQ(tokenizer().encode("Hello, my name is"),
             (std::vector<std::int32_t>{15496, 11, 616, 1438, 318}));
