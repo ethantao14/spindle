@@ -18,8 +18,19 @@ set(SPINDLE_WARNINGS -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
 
 configure_file(src/version.cpp.in ${CMAKE_CURRENT_BINARY_DIR}/version.cpp @ONLY)
 
-add_library(spindle_core src/ops.cpp src/tensor.cpp ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
+include(FetchContent)
+# Header-only; parses vocab.json here, and safetensors headers and model configs later.
+FetchContent_Declare(
+  json
+  URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+  URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+  DOWNLOAD_EXTRACT_TIMESTAMP ON)
+FetchContent_MakeAvailable(json)
+
+add_library(spindle_core src/ops.cpp src/tensor.cpp src/tokenizer.cpp src/unicode.cpp
+                         ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
 target_include_directories(spindle_core PUBLIC include)
+target_link_libraries(spindle_core PRIVATE nlohmann_json::nlohmann_json)
 target_compile_options(spindle_core PRIVATE ${SPINDLE_WARNINGS})
 
 add_executable(spindle src/main.cpp)

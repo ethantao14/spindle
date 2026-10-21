@@ -1,7 +1,8 @@
 """Dump GPT-2 reference outputs from Hugging Face Transformers for the C++ tests.
 
-For each prompt, writes token IDs, the output of every stage of the forward pass,
-and the logits, one tensor per file (see tools/tensorfile.py).
+Links out/model to the downloaded model files. For each prompt, writes token IDs,
+the output of every stage of the forward pass, and the logits, one tensor per file
+(see tools/tensorfile.py).
 """
 
 import argparse
@@ -50,6 +51,12 @@ def main() -> None:
     tokenizer = GPT2TokenizerFast.from_pretrained(model_dir)
     model = GPT2LMHeadModel.from_pretrained(model_dir, dtype=torch.float32).eval()
     captured, _handles = capture_stages(model)
+
+    # The C++ tests and CLI read the model files through this link.
+    args.out.mkdir(parents=True, exist_ok=True)
+    model_link = args.out / "model"
+    model_link.unlink(missing_ok=True)
+    model_link.symlink_to(model_dir, target_is_directory=True)
 
     prompts = json.loads(args.prompts.read_text(encoding="utf-8"))
     for index, prompt in enumerate(prompts):

@@ -30,6 +30,7 @@ fi
 .venv-reference/bin/python tools/reference.py \
   --prompts tests/reference/gpt2_prompts.json --out build/reference/gpt2
 .venv-reference/bin/python tools/op_reference.py --out build/reference/ops
+.venv-reference/bin/python tools/tokenizer_reference.py --out build/reference/tokenizer
 
 for preset in release asan; do
   echo "== build and test: $preset"
