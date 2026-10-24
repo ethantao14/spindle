@@ -45,7 +45,8 @@ TEST(Cli, RejectsUnknownArguments) {
   EXPECT_EQ(result.output,
             "usage: spindle --version\n"
             "       spindle tokenize --model DIR TEXT\n"
-            "       spindle detokenize --model DIR TOKEN_ID...\n");
+            "       spindle detokenize --model DIR TOKEN_ID...\n"
+            "       spindle generate --model DIR --tokens N PROMPT\n");
 }
 
 TEST(Cli, TokenizesText) {
@@ -71,4 +72,18 @@ TEST(Cli, ReportsMissingModel) {
   const CommandResult result = run_cli("tokenize --model /nonexistent hi");
   EXPECT_EQ(result.exit_code, 1);
   EXPECT_EQ(result.output, "error: cannot open /nonexistent/vocab.json\n");
+}
+
+// Expected text is Hugging Face's greedy continuation (the first tokens of prompt_1's greedy.bin).
+TEST(Cli, GeneratesGreedily) {
+  const CommandResult result =
+      run_cli("generate --model '" + model_dir() + "' --tokens 5 'Hello, my name is'");
+  EXPECT_EQ(result.exit_code, 0);
+  EXPECT_EQ(result.output, "Hello, my name is John. I'm a\n");
+}
+
+TEST(Cli, ReportsBadTokenCount) {
+  const CommandResult result = run_cli("generate --model '" + model_dir() + "' --tokens -1 hi");
+  EXPECT_EQ(result.exit_code, 2);
+  EXPECT_EQ(result.output, "error: '-1' is not a token count\n");
 }

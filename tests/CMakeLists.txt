@@ -14,10 +14,15 @@ set(SPINDLE_TEST_SOURCES
     version_test.cpp
     cli_test.cpp
     reference_loader_test.cpp
+    generate_cli_spec_test.cpp
     gpt2_reference_test.cpp
+    gpt2_spec_test.cpp
+    gpt2_test.cpp
     tensor_test.cpp
     matmul_test.cpp
     ops_test.cpp
+    safetensors_spec_test.cpp
+    safetensors_test.cpp
     tokenizer_test.cpp
     unicode_test.cpp
     support/reference.cpp)

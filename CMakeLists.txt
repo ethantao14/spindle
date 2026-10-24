@@ -9,8 +9,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(SPINDLE_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
 if(SPINDLE_SANITIZE)
-  # No recovery: any UB report aborts the test, so it cannot pass silently.
-  add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+  # No recovery: any UB report aborts the test, so it cannot pass silently. -O1, as
+  # ASan's docs suggest, keeps full checking while running a GPT-2 forward pass about 9x faster than -O0.
+  add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+                      -O1)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
@@ -27,7 +29,8 @@ FetchContent_Declare(
   DOWNLOAD_EXTRACT_TIMESTAMP ON)
 FetchContent_MakeAvailable(json)
 
-add_library(spindle_core src/ops.cpp src/tensor.cpp src/tokenizer.cpp src/unicode.cpp
+add_library(spindle_core src/gpt2.cpp src/ops.cpp src/safetensors.cpp src/tensor.cpp src/tokenizer.cpp
+                         src/unicode.cpp
                          ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
 target_include_directories(spindle_core PUBLIC include)
 target_link_libraries(spindle_core PRIVATE nlohmann_json::nlohmann_json)

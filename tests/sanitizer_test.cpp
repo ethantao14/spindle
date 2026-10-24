@@ -12,8 +12,8 @@ namespace {
 int read_past_end(std::size_t index) {
   std::vector<int> values(4, 0);
   const volatile std::size_t opaque_index = index;
-  // Raw pointer, so the read reaches ASan instead of a library bounds check.
-  const int* raw_values = values.data();
+  // Volatile forces the read; a raw pointer avoids a library bounds check.
+  const volatile int* raw_values = values.data();
   return raw_values[opaque_index];
 }
 
