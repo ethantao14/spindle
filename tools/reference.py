@@ -1,8 +1,8 @@
 """Dump GPT-2 reference outputs from Hugging Face Transformers for the C++ tests.
 
 Links out/model to the downloaded model files. For each prompt, writes token IDs,
-the output of every stage of the forward pass, and the logits, one tensor per file
-(see tools/tensorfile.py).
+the output of every stage of the forward pass, the logits, and a 100-token greedy
+continuation, one tensor per file (see tools/tensorfile.py).
 """
 
 import argparse
@@ -18,6 +18,7 @@ from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 MODEL_ID = "openai-community/gpt2"
 # Pinned so the reference cannot change underneath the tests.
 MODEL_REVISION = "607a30d783dfa663caf39e06633721c8d4cfcd7e"
+GREEDY_TOKENS = 100
 MODEL_FILES = ["config.json", "model.safetensors", "tokenizer.json", "vocab.json", "merges.txt"]
 
 
@@ -70,6 +71,17 @@ def main() -> None:
         for name, activation in captured.items():
             write_tensor(prompt_dir / f"{name}.bin", activation[0].numpy())
         write_tensor(prompt_dir / "logits.bin", logits[0].numpy())
+
+        # Greedy decoding stops early if the model emits end-of-text.
+        with torch.no_grad():
+            output = model.generate(
+                token_ids,
+                attention_mask=torch.ones_like(token_ids),
+                do_sample=False,
+                max_new_tokens=GREEDY_TOKENS,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        write_tensor(prompt_dir / "greedy.bin", output[0, token_ids.shape[1] :].numpy().astype(np.int32))
         print(f"prompt_{index}: {token_ids.shape[1]} tokens -> {prompt_dir}")
 
 
