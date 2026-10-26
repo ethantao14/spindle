@@ -29,7 +29,7 @@ FetchContent_Declare(
   DOWNLOAD_EXTRACT_TIMESTAMP ON)
 FetchContent_MakeAvailable(json)
 
-add_library(spindle_core src/gpt2.cpp src/ops.cpp src/safetensors.cpp src/tensor.cpp src/tokenizer.cpp
+add_library(spindle_core src/gpt2.cpp src/sampling.cpp src/ops.cpp src/safetensors.cpp src/tensor.cpp src/tokenizer.cpp
                          src/unicode.cpp
                          ${CMAKE_CURRENT_BINARY_DIR}/version.cpp)
 target_include_directories(spindle_core PUBLIC include)

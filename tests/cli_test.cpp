@@ -46,7 +46,8 @@ TEST(Cli, RejectsUnknownArguments) {
             "usage: spindle --version\n"
             "       spindle tokenize --model DIR TEXT\n"
             "       spindle detokenize --model DIR TOKEN_ID...\n"
-            "       spindle generate --model DIR --tokens N PROMPT\n");
+            "       spindle generate --model DIR --tokens N [--temperature T] [--top-k K] [--top-p "
+            "P] [--seed S] PROMPT\n");
 }
 
 TEST(Cli, TokenizesText) {

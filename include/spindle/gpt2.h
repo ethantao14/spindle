@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 
+#include "spindle/sampling.h"
 #include "spindle/tensor.h"
 
 namespace spindle {
@@ -83,8 +84,17 @@ class Gpt2Model {
   Tensor ln_f_weight_, ln_f_bias_;
 };
 
-// Greedy decoding: appends the most likely token until count tokens are generated
-// or the model emits end-of-text (which is included). Returns only the new tokens.
+// Called with each new token as soon as it is chosen, for streaming output.
+using TokenCallback = std::function<void(std::int32_t token)>;
+
+// Samples until count tokens are generated or the model emits end-of-text (which
+// is included). Returns only the new tokens. Throws std::invalid_argument for an
+// empty prompt or a bad config, std::out_of_range past the context length.
+std::vector<std::int32_t> generate(const Gpt2Model& model, std::span<const std::int32_t> prompt,
+                                   std::size_t count, const SamplingConfig& config,
+                                   std::uint64_t seed, const TokenCallback& on_token = nullptr);
+
+// generate with temperature 0.
 std::vector<std::int32_t> generate_greedy(const Gpt2Model& model,
                                           std::span<const std::int32_t> prompt, std::size_t count);
 
