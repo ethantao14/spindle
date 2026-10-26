@@ -23,6 +23,7 @@ set(SPINDLE_TEST_SOURCES
     gpt2_test.cpp
     tensor_test.cpp
     matmul_test.cpp
+    matmul_spec_test.cpp
     ops_test.cpp
     safetensors_spec_test.cpp
     safetensors_test.cpp
