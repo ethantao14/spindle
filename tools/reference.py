@@ -16,7 +16,7 @@ from tensorfile import write_tensor
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
 MODEL_ID = "openai-community/gpt2"
-# Pinned so the reference cannot change underneath the tests.
+# Pinned so the reference cannot change underneath the tests (cache-key check).
 MODEL_REVISION = "607a30d783dfa663caf39e06633721c8d4cfcd7e"
 GREEDY_TOKENS = 100
 MODEL_FILES = ["config.json", "model.safetensors", "tokenizer.json", "vocab.json", "merges.txt"]
