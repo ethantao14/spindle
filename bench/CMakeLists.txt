@@ -11,3 +11,7 @@ FetchContent_MakeAvailable(benchmark)
 add_executable(spindle_bench matmul_bench.cpp)
 target_link_libraries(spindle_bench PRIVATE spindle_core benchmark::benchmark_main)
 target_compile_options(spindle_bench PRIVATE ${SPINDLE_WARNINGS})
+
+add_executable(spindle_latency latency.cpp)
+target_link_libraries(spindle_latency PRIVATE spindle_core)
+target_compile_options(spindle_latency PRIVATE ${SPINDLE_WARNINGS})

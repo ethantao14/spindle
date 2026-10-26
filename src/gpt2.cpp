@@ -51,12 +51,6 @@ Gpt2Config read_config(const std::filesystem::path& path) {
   return config;
 }
 
-std::size_t argmax(const ConstTensorView& row) {
-  const float* values = row.data();
-  // First index of the maximum, matching torch.argmax on ties.
-  return static_cast<std::size_t>(std::max_element(values, values + row.element_count()) - values);
-}
-
 }  // namespace
 
 KvCache::KvCache(const Gpt2Config& config, std::size_t capacity) : capacity_(capacity) {
@@ -220,25 +214,44 @@ Tensor Gpt2Model::logits(const ConstTensorView& hidden) const {
   return result;
 }
 
-std::vector<std::int32_t> generate_greedy(const Gpt2Model& model,
-                                          std::span<const std::int32_t> prompt, std::size_t count) {
+std::vector<std::int32_t> generate(const Gpt2Model& model, std::span<const std::int32_t> prompt,
+                                   std::size_t count, const SamplingConfig& config,
+                                   std::uint64_t seed, const TokenCallback& on_token) {
   if (prompt.empty()) {
     throw std::invalid_argument("generation needs at least one prompt token");
   }
+  if (!std::isfinite(config.temperature) || config.temperature < 0 ||
+      !std::isfinite(config.top_p) || config.top_p <= 0 || config.top_p > 1) {
+    throw std::invalid_argument("invalid sampling configuration");
+  }
+  if (prompt.size() > model.config().max_positions ||
+      count > model.config().max_positions - prompt.size()) {
+    throw std::out_of_range("generation exceeds context length");
+  }
+  Pcg32 rng(seed);
   KvCache cache(model.config(), prompt.size() + count);
   std::vector<std::int32_t> generated;
   Tensor hidden = model.forward(prompt, cache);
   while (generated.size() < count) {
     const std::size_t last = hidden.shape()[0] - 1;
     const Tensor logits = model.logits(hidden.view().slice(0, last, last + 1));
-    const auto next = static_cast<std::int32_t>(argmax(logits.view()));
+    const auto next =
+        sample(std::span<const float>(logits.data(), model.config().vocab_size), config, rng);
     generated.push_back(next);
+    if (on_token) {
+      on_token(next);
+    }
     if (next == kEndOfTextToken || generated.size() == count) {
       break;
     }
     hidden = model.forward(std::span(&generated.back(), 1), cache);
   }
   return generated;
+}
+
+std::vector<std::int32_t> generate_greedy(const Gpt2Model& model,
+                                          std::span<const std::int32_t> prompt, std::size_t count) {
+  return generate(model, prompt, count, {.temperature = 0}, 0);
 }
 
 }  // namespace spindle

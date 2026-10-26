@@ -15,6 +15,9 @@ set(SPINDLE_TEST_SOURCES
     cli_test.cpp
     reference_loader_test.cpp
     generate_cli_spec_test.cpp
+    sampling_spec_test.cpp
+    generate_sampling_spec_test.cpp
+    generate_sampling_cli_spec_test.cpp
     gpt2_reference_test.cpp
     gpt2_spec_test.cpp
     gpt2_test.cpp
