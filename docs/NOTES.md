@@ -66,3 +66,31 @@ Measured single-thread peak (`spindle_peak_flops`, independent FMA chains): 105.
 Single-row shapes read every weight once per token, so they are limited by memory bandwidth rather than FMA throughput: 1 x 768 x 3072 moves 9.4 MB in 0.19 ms, about 50 GB/s.
 
 GPT-2 greedy decode, 200 tokens: median 105.4 ms per token before (9.5 tokens/s), 19.7 ms after (50.7 tokens/s), first 100 steps. The exact-match tests (activations within 1e-4, 100-token greedy output) still pass.
+
+## Thread pool (M4)
+
+`ThreadPool` (hand-written, caller participates) splits matmul output columns on the kernel's block boundaries (128 columns row-major, 4 transposed), so each output element runs the same instructions in the same order as on one thread: results are bit-identical for any thread count. Attention splits across heads. Matmuls under 524,288 multiply-adds stay on the calling thread, where dispatch cost more than it saved.
+
+```sh
+./build/release/bench/spindle_bench --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
+./build/release/bench/spindle_latency --model build/reference/gpt2/model --tokens 200 --threads T --out latency.csv
+```
+
+Machine: Apple M3 (4 performance + 4 efficiency cores), macOS 26, Apple clang 17.0.0, `-O3`, on battery with `caffeinate -dimsu`. Measured 2026-10-26 with a load average of 4.5 to 6.4, so other processes were competing; treat as approximate.
+
+| Matmul, 4 threads | 1 thread | 4 threads |
+| --- | --- | --- |
+| 512 x 512 x 512 | 87.0 GFLOPS | 300.5 GFLOPS |
+| 1 x 768 x 3072 (decode MLP) | 27.2 GFLOPS | 76.8 GFLOPS |
+| 1 x 768 x 50257, `b` transposed (logits) | 24.3 GFLOPS | 33.4 GFLOPS |
+
+300.5 GFLOPS is 71% of four times the single-core peak (105.6 GFLOPS); a true multi-core peak was not measured.
+
+| GPT-2 greedy decode, 200 tokens | Median per token (first 100) | Tokens/s |
+| --- | --- | --- |
+| 1 thread | 19.0 ms | 52.7 |
+| 2 threads | 18.7 ms | 53.6 |
+| 4 threads | 13.4 ms | 74.4 |
+| 8 threads | 10.6 ms | 94.6 |
+
+Decode scales less than matmul: single-token matmuls are memory bound (the logits matmul reads the 154 MB embedding every token), and LayerNorm, GELU, softmax and the residual adds still run on one thread. Those are the next targets (fused ops in the spec).

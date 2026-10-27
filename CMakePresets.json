@@ -11,11 +11,22 @@
       "displayName": "AddressSanitizer + UBSan",
       "binaryDir": "${sourceDir}/build/asan",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "SPINDLE_SANITIZE": "ON" }
+    },
+    {
+      "name": "tsan",
+      "displayName": "ThreadSanitizer",
+      "binaryDir": "${sourceDir}/build/tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SPINDLE_TSAN": "ON",
+        "SPINDLE_BENCHMARKS": "OFF"
+      }
     }
   ],
   "buildPresets": [
     { "name": "release", "configurePreset": "release" },
-    { "name": "asan", "configurePreset": "asan" }
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "tsan", "configurePreset": "tsan" }
   ],
   "testPresets": [
     {
@@ -26,6 +37,13 @@
     {
       "name": "asan",
       "configurePreset": "asan",
+      "output": { "outputOnFailure": true, "verbosity": "default" }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "filter": { "include": { "name": "ThreadPool.*Spec|Matmul.*Thread.*Spec" } },
+      "environment": { "TSAN_OPTIONS": "halt_on_error=1" },
       "output": { "outputOnFailure": true, "verbosity": "default" }
     }
   ]

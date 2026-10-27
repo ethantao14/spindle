@@ -4,6 +4,7 @@
 #include <span>
 
 #include "spindle/tensor.h"
+#include "spindle/thread_pool.h"
 
 namespace spindle {
 
@@ -12,8 +13,10 @@ namespace spindle {
 // view as an input (in place).
 
 // out[M, N] = a[M, K] @ b[K, N]. Accepts strided views (e.g. a transposed b).
-// out must not overlap a or b.
-void matmul(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out);
+// out must not overlap a or b. With a pool, output columns are split across its
+// threads, and every element is computed exactly as on one thread (bit-identical).
+void matmul(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out,
+            ThreadPool* pool = nullptr);
 
 // out = a + b. b has a's shape, or is 1-D with a's last dimension (a bias added to every row).
 void add(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out);

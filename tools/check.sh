@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs every check CI runs: format, reference dumps, both test builds, a benchmark
+# Runs every check CI runs: format, reference dumps, sanitizer builds, a benchmark
 # smoke run, and clang-tidy.
 set -euo pipefail
 
@@ -43,6 +43,12 @@ for preset in release asan; do
     exit 1
   fi
 done
+
+echo "== ThreadSanitizer"
+cmake --preset tsan
+cmake --build --preset tsan -j
+TSAN_OPTIONS=halt_on_error=1 build/tsan/tests/spindle_tests \
+  --gtest_filter='ThreadPool*Spec*:Matmul*Thread*Spec*'
 
 echo "== benchmark smoke run (one iteration each, timings not meaningful)"
 build/release/bench/spindle_bench --benchmark_min_time=1x

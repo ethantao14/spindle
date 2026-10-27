@@ -5,6 +5,7 @@
 #include <exception>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -22,26 +23,44 @@ double median(std::vector<double> values) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 7 || std::string_view(argv[1]) != "--model" ||
-      std::string_view(argv[3]) != "--tokens" || std::string_view(argv[5]) != "--out") {
-    std::fprintf(stderr, "usage: spindle_latency --model DIR --tokens N --out FILE.csv\n");
-    return 2;
-  }
   try {
-    const std::string_view text = argv[4];
+    std::string_view model_dir;
+    std::string_view output_path;
     std::size_t count = 0;
-    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), count);
-    if (error != std::errc() || end != text.data() + text.size() || count == 0) {
-      throw std::invalid_argument("tokens must be a positive integer");
+    std::size_t threads = 1;
+    if (argc % 2 != 1) {
+      throw std::invalid_argument("flags need values");
     }
-    const auto tokenizer = spindle::Tokenizer::load(argv[2]);
-    const auto model = spindle::Gpt2Model::load(argv[2]);
+    for (int i = 1; i + 1 < argc; i += 2) {
+      const std::string_view flag = argv[i];
+      const std::string_view text = argv[i + 1];
+      if (flag == "--model") {
+        model_dir = text;
+      } else if (flag == "--out") {
+        output_path = text;
+      } else if (flag == "--tokens" || flag == "--threads") {
+        std::size_t value = 0;
+        const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (error != std::errc() || end != text.data() + text.size() || value == 0) {
+          throw std::invalid_argument("tokens and threads must be positive integers");
+        }
+        (flag == "--tokens" ? count : threads) = value;
+      } else {
+        throw std::invalid_argument("unknown flag");
+      }
+    }
+    if (model_dir.empty() || output_path.empty() || count == 0) {
+      throw std::invalid_argument(
+          "usage: spindle_latency --model DIR --tokens N --out FILE.csv [--threads N]");
+    }
+    const auto tokenizer = spindle::Tokenizer::load(model_dir);
+    const auto model = spindle::Gpt2Model::load(model_dir, threads);
     const auto prompt = tokenizer.encode("The meaning of life is");
     const auto limit = std::min<std::size_t>(1024, model.config().max_positions);
     if (prompt.size() > limit || count > limit - prompt.size()) {
       throw std::invalid_argument("prompt plus tokens exceeds context length");
     }
-    std::ofstream output(argv[6]);
+    std::ofstream output{std::string(output_path)};
     if (!output) {
       throw std::runtime_error("cannot open output CSV");
     }

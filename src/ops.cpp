@@ -169,7 +169,8 @@ void matmul_dots(const ConstTensorView& a, const ConstTensorView& b, const Tenso
 
 }  // namespace
 
-void matmul(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out) {
+void matmul(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out,
+            ThreadPool* pool) {
   if (a.rank() != 2 || b.rank() != 2 || out.rank() != 2 || a.dim(1) != b.dim(0) ||
       out.dim(0) != a.dim(0) || out.dim(1) != b.dim(1)) {
     throw std::invalid_argument("matmul shape mismatch: " + shape_to_string(a.shape()) + " @ " +
@@ -178,6 +179,29 @@ void matmul(const ConstTensorView& a, const ConstTensorView& b, const TensorView
   const std::size_t rows = a.dim(0);
   const std::size_t inner = a.dim(1);
   const std::size_t cols = b.dim(1);
+  // Below 512K multiply-adds, measured dispatch overhead exceeds the savings.
+  // Larger splits preserve the kernel's column tiles.
+  if (pool != nullptr && pool->size() > 1 && rows * inner * cols >= 524288) {
+    std::size_t block = 1;
+#if defined(__ARM_NEON)  // NOLINT(readability-use-concise-preprocessor-directives)
+    if (a.strides()[1] == 1 && b.strides()[1] == 1 && out.strides()[1] == 1 &&
+        (rows == 1 || out.strides()[0] >= cols)) {
+      block = 128;
+    } else if (a.strides()[1] == 1 && b.strides()[0] == 1) {
+      block = 4;
+    }
+#endif
+    const auto blocks = (cols + block - 1) / block;
+    const auto chunks = std::min(blocks, pool->size());
+    if (chunks > 1) {
+      pool->run(chunks, [&](std::size_t chunk, std::size_t count) {
+        const auto first = (blocks * chunk / count) * block;
+        const auto last = std::min(cols, (blocks * (chunk + 1) / count) * block);
+        matmul(a, b.slice(1, first, last), out.slice(1, first, last));
+      });
+      return;
+    }
+  }
   const float* a_data = a.data();
   const float* b_data = b.data();
   float* out_data = out.data();

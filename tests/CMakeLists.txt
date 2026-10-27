@@ -11,6 +11,10 @@ set(SPINDLE_REFERENCE_DIR "${PROJECT_SOURCE_DIR}/build/reference"
     CACHE PATH "Directory holding dumps from tools/reference.py")
 
 set(SPINDLE_TEST_SOURCES
+    thread_pool_spec_test.cpp
+    matmul_threads_spec_test.cpp
+    gpt2_threads_spec_test.cpp
+    threads_cli_spec_test.cpp
     version_test.cpp
     cli_test.cpp
     reference_loader_test.cpp
