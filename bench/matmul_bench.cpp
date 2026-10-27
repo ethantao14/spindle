@@ -21,7 +21,7 @@ spindle::Tensor random_tensor(spindle::Shape shape, unsigned seed) {
 }
 
 // Args: rows (M), inner (K), cols (N). Reports GFLOPS as 2*M*K*N per run.
-void BM_MatmulNaive(benchmark::State& state) {
+void BM_Matmul(benchmark::State& state) {
   const auto rows = static_cast<std::size_t>(state.range(0));
   const auto inner = static_cast<std::size_t>(state.range(1));
   const auto cols = static_cast<std::size_t>(state.range(2));
@@ -39,9 +39,27 @@ void BM_MatmulNaive(benchmark::State& state) {
       benchmark::Counter(flops_per_run / 1e9, benchmark::Counter::kIsIterationInvariantRate);
 }
 
+void BM_MatmulTransposed(benchmark::State& state) {
+  const auto rows = static_cast<std::size_t>(state.range(0));
+  const auto inner = static_cast<std::size_t>(state.range(1));
+  const auto cols = static_cast<std::size_t>(state.range(2));
+  const spindle::Tensor a = random_tensor({rows, inner}, 1);
+  const spindle::Tensor b = random_tensor({cols, inner}, 2);
+  spindle::Tensor out({rows, cols});
+
+  for (auto _ : state) {
+    spindle::matmul(a.view(), b.view().transpose(0, 1), out.view());
+    benchmark::DoNotOptimize(out.data());
+    benchmark::ClobberMemory();
+  }
+  const double flops_per_run = 2.0 * static_cast<double>(rows * inner * cols);
+  state.counters["GFLOPS"] =
+      benchmark::Counter(flops_per_run / 1e9, benchmark::Counter::kIsIterationInvariantRate);
+}
+
 }  // namespace
 
-BENCHMARK(BM_MatmulNaive)
+BENCHMARK(BM_Matmul)
     ->ArgNames({"M", "K", "N"})
     ->Args({256, 256, 256})
     ->Args({512, 512, 512})
@@ -49,3 +67,5 @@ BENCHMARK(BM_MatmulNaive)
     ->Args({1, 768, 3072})
     ->Args({64, 768, 768})
     ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_MatmulTransposed)->Args({1, 768, 50257})->Unit(benchmark::kMillisecond);

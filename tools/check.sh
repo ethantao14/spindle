@@ -47,6 +47,9 @@ done
 echo "== benchmark smoke run (one iteration each, timings not meaningful)"
 build/release/bench/spindle_bench --benchmark_min_time=1x
 
+echo "== peak FLOPS smoke run (timings not meaningful)"
+build/release/bench/spindle_peak_flops --smoke
+
 echo "== latency smoke run (8 steps, timings not meaningful)"
 build/release/bench/spindle_latency --model build/reference/gpt2/model --tokens 8 --out build/latency_smoke.csv
 python3 tools/plot_latency.py build/latency_smoke.csv build/latency_smoke.svg

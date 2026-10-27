@@ -1,11 +1,16 @@
 #include "spindle/ops.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <numbers>
 #include <stdexcept>
 #include <string>
+
+#if defined(__ARM_NEON)  // NOLINT(readability-use-concise-preprocessor-directives)
+#include <arm_neon.h>
+#endif
 
 namespace spindle {
 
@@ -41,6 +46,127 @@ std::size_t row_count(const ConstTensorView& view, std::size_t width) {
   return width == 0 ? 0 : view.element_count() / width;
 }
 
+#if defined(__ARM_NEON)  // NOLINT(readability-use-concise-preprocessor-directives)
+// Each tile keeps four vectors per output row live across the K panel.
+template <std::size_t Rows>
+void row_tile(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out,
+              std::size_t row, std::size_t col, std::size_t begin, std::size_t end) {
+  std::array<std::array<float32x4_t, 4>, Rows> sums;
+  for (std::size_t r = 0; r < Rows; ++r) {
+    for (std::size_t v = 0; v < 4; ++v) {
+      sums[r][v] = begin == 0
+                       ? vdupq_n_f32(0)
+                       : vld1q_f32(out.data() + ((row + r) * out.strides()[0]) + col + (4 * v));
+    }
+  }
+  for (std::size_t k = begin; k < end; ++k) {
+    const float* bp = b.data() + (k * b.strides()[0]) + col;
+    const float32x4_t b0 = vld1q_f32(bp + 0);
+    const float32x4_t b1 = vld1q_f32(bp + 4);
+    const float32x4_t b2 = vld1q_f32(bp + 8);
+    const float32x4_t b3 = vld1q_f32(bp + 12);
+    for (std::size_t r = 0; r < Rows; ++r) {
+      const float av = a.data()[((row + r) * a.strides()[0]) + k];
+      sums[r][0] = vfmaq_n_f32(sums[r][0], b0, av);
+      sums[r][1] = vfmaq_n_f32(sums[r][1], b1, av);
+      sums[r][2] = vfmaq_n_f32(sums[r][2], b2, av);
+      sums[r][3] = vfmaq_n_f32(sums[r][3], b3, av);
+    }
+  }
+  for (std::size_t r = 0; r < Rows; ++r) {
+    for (std::size_t v = 0; v < 4; ++v) {
+      vst1q_f32(out.data() + ((row + r) * out.strides()[0]) + col + (4 * v), sums[r][v]);
+    }
+  }
+}
+
+void matmul_rows(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out) {
+  constexpr std::size_t kRows = 64;
+  constexpr std::size_t kCols = 128;
+  constexpr std::size_t kInner = 128;
+  for (std::size_t i = 0; i < a.dim(0); i += kRows) {
+    const auto row_end = std::min(i + kRows, a.dim(0));
+    for (std::size_t j = 0; j < b.dim(1); j += kCols) {
+      const auto col_end = std::min(j + kCols, b.dim(1));
+      for (std::size_t p = 0; p < a.dim(1); p += kInner) {
+        const auto end = std::min(p + kInner, a.dim(1));
+        std::size_t row = i;
+        for (; row + 4 <= row_end; row += 4) {
+          for (std::size_t col = j; col + 16 <= col_end; col += 16) {
+            row_tile<4>(a, b, out, row, col, p, end);
+          }
+        }
+        for (; row < row_end; ++row) {
+          for (std::size_t col = j; col + 16 <= col_end; col += 16) {
+            row_tile<1>(a, b, out, row, col, p, end);
+          }
+        }
+        for (row = i; row < row_end; ++row) {
+          for (std::size_t col = j + (((col_end - j) / 16) * 16); col < col_end; ++col) {
+            float sum = p == 0 ? 0 : out.data()[(row * out.strides()[0]) + col];
+            for (std::size_t k = p; k < end; ++k) {
+              sum += a.data()[(row * a.strides()[0]) + k] * b.data()[(k * b.strides()[0]) + col];
+            }
+            out.data()[(row * out.strides()[0]) + col] = sum;
+          }
+        }
+      }
+    }
+  }
+}
+
+// Four independent K chains per column hide FMA latency; A is shared across columns.
+template <std::size_t Cols>
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): explicit dimensions and strides.
+void dot_tile(const float* a, const float* b, std::size_t stride, std::size_t inner, float* out,
+              std::size_t out_stride) {
+  std::array<std::array<float32x4_t, 4>, Cols> sums;
+  for (auto& column : sums) {
+    for (auto& sum : column) {
+      sum = vdupq_n_f32(0);
+    }
+  }
+  std::size_t k = 0;
+  for (; k + 16 <= inner; k += 16) {
+    const float32x4_t a0 = vld1q_f32(a + k + 0);
+    const float32x4_t a1 = vld1q_f32(a + k + 4);
+    const float32x4_t a2 = vld1q_f32(a + k + 8);
+    const float32x4_t a3 = vld1q_f32(a + k + 12);
+    for (std::size_t j = 0; j < Cols; ++j) {
+      sums[j][0] = vfmaq_f32(sums[j][0], a0, vld1q_f32(b + (j * stride) + k + 0));
+      sums[j][1] = vfmaq_f32(sums[j][1], a1, vld1q_f32(b + (j * stride) + k + 4));
+      sums[j][2] = vfmaq_f32(sums[j][2], a2, vld1q_f32(b + (j * stride) + k + 8));
+      sums[j][3] = vfmaq_f32(sums[j][3], a3, vld1q_f32(b + (j * stride) + k + 12));
+    }
+  }
+  for (std::size_t j = 0; j < Cols; ++j) {
+    const auto pair0 = vaddq_f32(sums[j][0], sums[j][1]);
+    const auto pair1 = vaddq_f32(sums[j][2], sums[j][3]);
+    float sum = vaddvq_f32(vaddq_f32(pair0, pair1));
+    for (std::size_t p = k; p < inner; ++p) {
+      sum += a[p] * b[(j * stride) + p];
+    }
+    out[j * out_stride] = sum;
+  }
+}
+
+void matmul_dots(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out) {
+  for (std::size_t row = 0; row < a.dim(0); ++row) {
+    const float* ap = a.data() + (row * a.strides()[0]);
+    float* op = out.data() + (row * out.strides()[0]);
+    std::size_t col = 0;
+    for (; col + 4 <= b.dim(1); col += 4) {
+      dot_tile<4>(ap, b.data() + (col * b.strides()[1]), b.strides()[1], a.dim(1),
+                  op + (col * out.strides()[1]), out.strides()[1]);
+    }
+    for (; col < b.dim(1); ++col) {
+      dot_tile<1>(ap, b.data() + (col * b.strides()[1]), b.strides()[1], a.dim(1),
+                  op + (col * out.strides()[1]), out.strides()[1]);
+    }
+  }
+}
+#endif
+
 }  // namespace
 
 void matmul(const ConstTensorView& a, const ConstTensorView& b, const TensorView& out) {
@@ -56,7 +182,20 @@ void matmul(const ConstTensorView& a, const ConstTensorView& b, const TensorView
   const float* b_data = b.data();
   float* out_data = out.data();
 
-  // Naive triple loop: the correctness baseline that later kernels are measured against.
+#if defined(__ARM_NEON)  // NOLINT(readability-use-concise-preprocessor-directives)
+  if (rows != 0 && cols != 0 && inner != 0 && a.strides()[1] == 1) {
+    if (b.strides()[1] == 1 && out.strides()[1] == 1 && (rows == 1 || out.strides()[0] >= cols)) {
+      matmul_rows(a, b, out);
+      return;
+    }
+    if (b.strides()[0] == 1) {
+      matmul_dots(a, b, out);
+      return;
+    }
+  }
+#endif
+
+  // General strided fallback also handles empty inner dimensions.
   for (std::size_t row = 0; row < rows; ++row) {
     for (std::size_t col = 0; col < cols; ++col) {
       float sum = 0.0F;

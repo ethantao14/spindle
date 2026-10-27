@@ -15,3 +15,6 @@ target_compile_options(spindle_bench PRIVATE ${SPINDLE_WARNINGS})
 add_executable(spindle_latency latency.cpp)
 target_link_libraries(spindle_latency PRIVATE spindle_core)
 target_compile_options(spindle_latency PRIVATE ${SPINDLE_WARNINGS})
+
+add_executable(spindle_peak_flops peak_flops.cpp)
+target_compile_options(spindle_peak_flops PRIVATE ${SPINDLE_WARNINGS})
