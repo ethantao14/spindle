@@ -25,7 +25,7 @@ constexpr std::string_view kUsage =
     "       spindle tokenize --model DIR TEXT\n"
     "       spindle detokenize --model DIR TOKEN_ID...\n"
     "       spindle generate --model DIR --tokens N [--temperature T] [--top-k K] [--top-p P] "
-    "[--seed S] PROMPT\n";
+    "[--seed S] [--threads N] PROMPT\n";
 
 int usage() {
   std::fwrite(kUsage.data(), 1, kUsage.size(), stderr);
@@ -72,25 +72,36 @@ T parse_number(std::string_view text) {
 
 int generate(std::span<char* const> args) {
   std::size_t count = 0;
+  std::size_t threads = 1;
+  std::string_view model_dir;
+  bool has_tokens = false;
   std::uint64_t seed = 0;
   spindle::SamplingConfig config{.temperature = 0};
   try {
-    if (args.size() < 7 || args.size() % 2 == 0 || std::string_view(args[4]) != "--tokens") {
+    if (args.size() < 7 || args.size() % 2 == 0) {
       return usage();
     }
-    try {
-      count = parse_number<std::size_t>(args[5]);
-    } catch (const std::invalid_argument&) {
-      std::fprintf(stderr, "error: '%s' is not a token count\n", args[5]);
-      return kUsageError;
-    }
-    for (std::size_t i = 6; i + 1 < args.size(); i += 2) {
+    for (std::size_t i = 2; i + 1 < args.size(); i += 2) {
       const std::string_view flag = args[i];
       if (i + 2 >= args.size()) {
         throw std::invalid_argument("flag missing its value or final prompt");
       }
       const std::string_view value = args[i + 1];
-      if (flag == "--temperature") {
+      if (flag == "--model") {
+        model_dir = value;
+      } else if (flag == "--tokens") {
+        try {
+          count = parse_number<std::size_t>(value);
+        } catch (const std::invalid_argument&) {
+          throw std::invalid_argument("'" + std::string(value) + "' is not a token count");
+        }
+        has_tokens = true;
+      } else if (flag == "--threads") {
+        threads = parse_number<std::size_t>(value);
+        if (threads == 0) {
+          throw std::invalid_argument("threads must be positive");
+        }
+      } else if (flag == "--temperature") {
         config.temperature = parse_number<float>(value);
       } else if (flag == "--top-k") {
         config.top_k = parse_number<std::size_t>(value);
@@ -101,6 +112,9 @@ int generate(std::span<char* const> args) {
       } else {
         throw std::invalid_argument("unknown flag: " + std::string(flag));
       }
+    }
+    if (model_dir.empty() || !has_tokens) {
+      return usage();
     }
     if (std::string_view(args.back()).starts_with("--")) {
       throw std::invalid_argument("unknown flag or flag missing its value");
@@ -113,8 +127,8 @@ int generate(std::span<char* const> args) {
     std::fprintf(stderr, "error: %s\n", error.what());
     return kUsageError;
   }
-  const spindle::Tokenizer tokenizer = spindle::Tokenizer::load(args[3]);
-  const spindle::Gpt2Model model = spindle::Gpt2Model::load(args[3]);
+  const spindle::Tokenizer tokenizer = spindle::Tokenizer::load(model_dir);
+  const spindle::Gpt2Model model = spindle::Gpt2Model::load(model_dir, threads);
   const std::string_view prompt = args.back();
   const auto prompt_tokens = tokenizer.encode(prompt);
   std::fwrite(prompt.data(), 1, prompt.size(), stdout);
@@ -137,7 +151,8 @@ int main(int argc, char** argv) {
     std::printf("spindle %.*s\n", static_cast<int>(version.size()), version.data());
     return 0;
   }
-  if (args.size() < 5 || std::string_view(args[2]) != "--model") {
+  if (args.size() < 5 ||
+      (std::string_view(args[1]) != "generate" && std::string_view(args[2]) != "--model")) {
     return usage();
   }
   const std::string_view command = args[1];

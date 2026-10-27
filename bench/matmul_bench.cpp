@@ -57,6 +57,44 @@ void BM_MatmulTransposed(benchmark::State& state) {
       benchmark::Counter(flops_per_run / 1e9, benchmark::Counter::kIsIterationInvariantRate);
 }
 
+void BM_MatmulThreaded(benchmark::State& state) {
+  const auto rows = static_cast<std::size_t>(state.range(0));
+  const auto inner = static_cast<std::size_t>(state.range(1));
+  const auto cols = static_cast<std::size_t>(state.range(2));
+  const spindle::Tensor a = random_tensor({rows, inner}, 1);
+  const spindle::Tensor b = random_tensor({inner, cols}, 2);
+  spindle::Tensor out({rows, cols});
+
+  spindle::ThreadPool pool(static_cast<std::size_t>(state.range(3)));
+  for (auto _ : state) {
+    spindle::matmul(a.view(), b.view(), out.view(), &pool);
+    benchmark::DoNotOptimize(out.data());
+    benchmark::ClobberMemory();
+  }
+  const double flops_per_run = 2.0 * static_cast<double>(rows * inner * cols);
+  state.counters["GFLOPS"] =
+      benchmark::Counter(flops_per_run / 1e9, benchmark::Counter::kIsIterationInvariantRate);
+}
+
+void BM_MatmulTransposedThreaded(benchmark::State& state) {
+  const auto rows = static_cast<std::size_t>(state.range(0));
+  const auto inner = static_cast<std::size_t>(state.range(1));
+  const auto cols = static_cast<std::size_t>(state.range(2));
+  const spindle::Tensor a = random_tensor({rows, inner}, 1);
+  const spindle::Tensor b = random_tensor({cols, inner}, 2);
+  spindle::Tensor out({rows, cols});
+
+  spindle::ThreadPool pool(static_cast<std::size_t>(state.range(3)));
+  for (auto _ : state) {
+    spindle::matmul(a.view(), b.view().transpose(0, 1), out.view(), &pool);
+    benchmark::DoNotOptimize(out.data());
+    benchmark::ClobberMemory();
+  }
+  const double flops_per_run = 2.0 * static_cast<double>(rows * inner * cols);
+  state.counters["GFLOPS"] =
+      benchmark::Counter(flops_per_run / 1e9, benchmark::Counter::kIsIterationInvariantRate);
+}
+
 }  // namespace
 
 BENCHMARK(BM_Matmul)
@@ -69,3 +107,16 @@ BENCHMARK(BM_Matmul)
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_MatmulTransposed)->Args({1, 768, 50257})->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_MatmulThreaded)
+    ->Args({512, 512, 512, 4})
+    ->Args({1, 768, 3072, 4})
+    ->Args({1, 768, 2304, 4})
+    ->Args({1, 768, 768, 4})
+    ->Args({1, 3072, 768, 4})
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK(BM_MatmulTransposedThreaded)
+    ->Args({1, 768, 50257, 4})
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();

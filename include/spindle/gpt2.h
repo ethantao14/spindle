@@ -4,12 +4,14 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <vector>
 
 #include "spindle/sampling.h"
 #include "spindle/tensor.h"
+#include "spindle/thread_pool.h"
 
 namespace spindle {
 
@@ -47,8 +49,11 @@ using ActivationObserver = std::function<void(std::string_view name, const Const
 // GPT-2 (Hugging Face layout), float32 weights loaded from model.safetensors and config.json.
 class Gpt2Model {
  public:
-  // Throws std::runtime_error if a file is missing, malformed, or has the wrong shapes.
-  static Gpt2Model load(const std::filesystem::path& model_dir);
+  // Throws std::runtime_error if a file is missing, malformed, or has the wrong shapes,
+  // and std::invalid_argument if threads is 0. Results do not depend on threads.
+  static Gpt2Model load(const std::filesystem::path& model_dir, std::size_t threads = 1);
+
+  [[nodiscard]] std::size_t threads() const { return pool_->size(); }
 
   [[nodiscard]] const Gpt2Config& config() const { return config_; }
 
@@ -82,6 +87,7 @@ class Gpt2Model {
   Tensor position_embedding_;  // [max_positions, hidden]
   std::vector<Layer> layers_;
   Tensor ln_f_weight_, ln_f_bias_;
+  std::unique_ptr<ThreadPool> pool_;  // shared by matmul and attention heads
 };
 
 // Called with each new token as soon as it is chosen, for streaming output.

@@ -74,7 +74,8 @@ Gpt2Model::Gpt2Model(Gpt2Config config, Tensor token_embedding, Tensor position_
       ln_f_weight_(std::move(ln_f_weight)),
       ln_f_bias_(std::move(ln_f_bias)) {}
 
-Gpt2Model Gpt2Model::load(const std::filesystem::path& model_dir) {
+Gpt2Model Gpt2Model::load(const std::filesystem::path& model_dir, std::size_t threads) {
+  auto pool = std::make_unique<ThreadPool>(threads);
   const Gpt2Config config = read_config(model_dir / "config.json");
   const SafetensorsFile weights(model_dir / "model.safetensors");
   const std::size_t hidden = config.hidden;
@@ -100,12 +101,14 @@ Gpt2Model Gpt2Model::load(const std::filesystem::path& model_dir) {
         .mlp_proj_bias = load("mlp.c_proj.bias", {hidden}),
     });
   }
-  return {config,
-          weights.load_f32("wte.weight", {config.vocab_size, hidden}),
-          weights.load_f32("wpe.weight", {config.max_positions, hidden}),
-          std::move(layers),
-          weights.load_f32("ln_f.weight", {hidden}),
-          weights.load_f32("ln_f.bias", {hidden})};
+  Gpt2Model model{config,
+                  weights.load_f32("wte.weight", {config.vocab_size, hidden}),
+                  weights.load_f32("wpe.weight", {config.max_positions, hidden}),
+                  std::move(layers),
+                  weights.load_f32("ln_f.weight", {hidden}),
+                  weights.load_f32("ln_f.bias", {hidden})};
+  model.pool_ = std::move(pool);
+  return model;
 }
 
 Tensor Gpt2Model::forward(std::span<const std::int32_t> tokens, KvCache& cache,
@@ -141,10 +144,10 @@ Tensor Gpt2Model::forward(std::span<const std::int32_t> tokens, KvCache& cache,
 
     layer_norm(x.view(), layer.ln_2_weight.view(), layer.ln_2_bias.view(),
                config_.layer_norm_epsilon, normed.view());
-    matmul(normed.view(), layer.mlp_fc_weight.view(), mlp_hidden.view());
+    matmul(normed.view(), layer.mlp_fc_weight.view(), mlp_hidden.view(), pool_.get());
     add(mlp_hidden.view(), layer.mlp_fc_bias.view(), mlp_hidden.view());
     gelu(mlp_hidden.view(), mlp_hidden.view());
-    matmul(mlp_hidden.view(), layer.mlp_proj_weight.view(), mlp_out.view());
+    matmul(mlp_hidden.view(), layer.mlp_proj_weight.view(), mlp_out.view(), pool_.get());
     add(mlp_out.view(), layer.mlp_proj_bias.view(), mlp_out.view());
     add(x.view(), mlp_out.view(), x.view());
 
@@ -169,7 +172,7 @@ void Gpt2Model::attention(const Layer& layer, std::size_t layer_index, const Con
   const std::size_t total = start + count;
 
   Tensor qkv({count, 3 * hidden});
-  matmul(in, layer.attn_weight.view(), qkv.view());
+  matmul(in, layer.attn_weight.view(), qkv.view(), pool_.get());
   add(qkv.view(), layer.attn_bias.view(), qkv.view());
 
   // Append this step's keys and values after the cached ones.
@@ -185,9 +188,9 @@ void Gpt2Model::attention(const Layer& layer, std::size_t layer_index, const Con
   const ConstTensorView all_keys = keys.slice(0, 0, total);
   const ConstTensorView all_values = values.slice(0, 0, total);
   const float scale = 1.0F / std::sqrt(static_cast<float>(head_size));
-  Tensor scores({count, total});
   Tensor context({count, hidden});
-  for (std::size_t head = 0; head < config_.heads; ++head) {
+  pool_->run(config_.heads, [&](std::size_t head, std::size_t) {
+    Tensor scores({count, total});
     const std::size_t first = head * head_size;
     const std::size_t last = first + head_size;
     matmul(queries.slice(1, first, last), all_keys.slice(1, first, last).transpose(0, 1),
@@ -202,15 +205,15 @@ void Gpt2Model::attention(const Layer& layer, std::size_t layer_index, const Con
     }
     softmax(scores.view(), scores.view());
     matmul(scores.view(), all_values.slice(1, first, last), context.view().slice(1, first, last));
-  }
+  });
 
-  matmul(context.view(), layer.attn_proj_weight.view(), out);
+  matmul(context.view(), layer.attn_proj_weight.view(), out, pool_.get());
   add(out, layer.attn_proj_bias.view(), out);
 }
 
 Tensor Gpt2Model::logits(const ConstTensorView& hidden) const {
   Tensor result({hidden.dim(0), config_.vocab_size});
-  matmul(hidden, token_embedding_.view().transpose(0, 1), result.view());
+  matmul(hidden, token_embedding_.view().transpose(0, 1), result.view(), pool_.get());
   return result;
 }
 
